@@ -1,5 +1,6 @@
 import csv
 import datetime
+import logging
 import smtplib
 import ssl
 from email import encoders
@@ -53,14 +54,17 @@ class Parser:
             self.password = file.readline()
             self.e_mail_to = file.readline()
 
-        print("Хидеры и урлы добавлены")
+        logging.basicConfig(filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
+
+
+        logging.info("Парсер проинициализирован")
 
 
 def parse_start(parser):
-    print("Начинаем парсить")
+    logging.info("Начинаем парсить")
     parse(parser)
-    print("Парсить закончили")
-    print("Создаём CSV файл")
+    logging.info("Парсить закончили")
+    logging.info("Создаём CSV файл")
     creat_csv(parser.CATALOG)
     send_to_email(parser)
 
@@ -76,9 +80,9 @@ def parse(parser):
                 if html.status_code == 200:
                     parser.CATALOG.append(get_content(html.text))
                 else:
-                    print(f"Статус код {html.status_code}")
+                    logging.warning(f"Статус код {html.status_code}")
         else:
-            print(f"Статус код {html.status_code}")
+            logging.warning(f"Статус код {html.status_code}")
 
 
 def get_html(url, parser):
@@ -86,11 +90,11 @@ def get_html(url, parser):
 
         try:
             req = requests.get(url, proxies=parser.PROXIES)
-            print("Подключились к прокси")
+            logging.info("Подключились к прокси")
         except Exception:
-            print("Не достучались до прокси")
+            logging.warning("Не достучались до прокси")
     else:
-        print("Запрос без прокси")
+        logging.info("Запрос без прокси")
         req = requests.get(url, headers=parser.HEADERS)
     return req
 
@@ -122,7 +126,7 @@ def get_content(html):
             obj = create_obj(name, article, cost, link)
             data.append(obj)
         except Exception:
-            print("Не получилось спарсить 1-н из товаров ")
+            logging.warning(f"Не получилось спарсить товар {name} ")
     return data
 
 
@@ -152,38 +156,54 @@ def creat_csv(catalog):
             for items in catalog:
                 for item in items:
                     write.writerow(item)
-        print("CSV файл создан!")
+        logging.info("CSV файл создан!")
     except Exception:
-        print("Ошибка записи в файл")
+        logging.error("Ошибка записи в файл")
 
 
 def send_to_email(parser):
-    message = MIMEMultipart()
-    message["From"] = parser.e_mail_from
-    message["To"] = parser.e_mail_to
-    message["Subject"] = f"Catalog bouz.ru. Data: {datetime.date.today()}"
-    message["Bcc"] = parser.e_mail_to
-    message.attach(MIMEText("", "plain"))
+    if not parser.e_mail_from or not parser.e_mail_to:
+        logging.warning("Не найден email")
+    else:
+        message = MIMEMultipart()
+        message["From"] = parser.e_mail_from
+        message["To"] = parser.e_mail_to
+        message["Subject"] = f"Catalog bouz.ru. Data: {datetime.date.today()}"
+        message["Bcc"] = parser.e_mail_to
+        message.attach(MIMEText("", "plain"))
 
-    with open("catalog.csv", 'rb') as file:
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(file.read())
-    encoders.encode_base64(part)
-    part.add_header(
-        "Content-Disposition",
-        f"attachment; filename= catalog.csv",
-    )
-    message.attach(part)
-    text = message.as_string()
+        with open("catalog.csv", 'rb') as file:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(file.read())
+        encoders.encode_base64(part)
+        part.add_header(
+            "Content-Disposition",
+            f"attachment; filename= catalog.csv",
+        )
+        message.attach(part)
+        text = message.as_string()
 
-    context = ssl.create_default_context()
+        context = ssl.create_default_context()
 
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context)as server:
-        server.login(parser.e_mail_from, parser.password)
-        server.sendmail(parser.e_mail_from, parser.e_mail_to, text)
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context)as server:
+            server.login(parser.e_mail_from, parser.password)
+            server.sendmail(parser.e_mail_from, parser.e_mail_to, text)
+            logging.info("CSV файл отправлен")
 
 
-p = Parser
-p.__init__(p)
-parse_start(p)
+def parse_controller():
+    time_to_parse = datetime.date.today()
+    now = True
 
+    while True:
+        if time_to_parse < datetime.date.today():
+            now = True
+        if now:
+            now = False
+            p = Parser
+            p.__init__(p)
+            parse_start(p)
+            time_to_parse = datetime.date.today() + datetime.timedelta(days=1)
+
+
+parse_controller()
